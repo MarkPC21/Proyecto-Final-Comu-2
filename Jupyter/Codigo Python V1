@@ -1,0 +1,430 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# # Proyecto Final Taller de Comunicaciones
+
+# ## Librerías 
+
+# In[1]:
+
+
+# Se cargan las bibliotecas de pandas , numpy y scipy
+import pandas as pd
+from pandas import ExcelWriter
+from pandas import ExcelFile
+import numpy as np
+import matplotlib. pyplot as plt
+import scipy
+from scipy import stats
+from scipy.stats import norm
+import seaborn as sns
+import numpy as np
+#from outliers import smirnov_grubbs as grubbs
+import matplotlib.pyplot as plt
+import math
+import scipy.signal as signal
+from matplotlib import rcParams
+from scipy.signal import cont2discrete, lti, dlti, dstep
+
+
+# ## Análisis de los Datos 
+
+# Se importan los datos del Dataset
+
+# In[2]:
+
+
+datos = pd.read_excel (r'D:\Mi Unidad\TEC\2022\I SEMESTRE\TALLER DE COMUNICACIONES ELECTRICAS\PROYECTO FINAL\Dataset.xlsx', sheet_name= 'Hoja1', header = 0)
+
+
+# In[3]:
+
+
+BPM_DF = pd.DataFrame(datos)
+
+
+# ### Análisis Cuantitativo
+
+# Vamos a realizar un análisis de los datos, se calcula el pvalue, desviación estándar y el promedio por medio de la función Anderson para probar la normalidad de los datos
+
+# In[4]:
+
+
+# normality test
+result = scipy.stats.anderson(BPM_DF['BPM'], dist='norm')
+print('Statistic: %.3f' % result.statistic)
+p = 0
+for i in range(len(result.critical_values)):
+    sl, cv = result.significance_level[i], result.critical_values[i]
+    if result.statistic < result.critical_values[i]:
+        print('%.3f: %.3f, data looks normal (fail to reject H0)' % (sl, cv))
+    else:
+        print('%.3f: %.3f, data does not look normal (reject H0)' % (sl, cv))
+
+
+# In[5]:
+
+
+result
+
+
+# In[6]:
+
+
+#grubbs.max_test_outliers(BPM_DF['BPM'], alpha=0.5)
+
+
+# 
+
+# ### Análisis Gráfico
+
+# In[7]:
+
+
+sns.jointplot(x=BPM_DF['Tiempo(s)'], y=BPM_DF['BPM'], color="#4CB391")
+
+
+# In[8]:
+
+
+sns.histplot(data = BPM_DF, x = BPM_DF['BPM'], color="#4CB391")
+
+
+# In[9]:
+
+
+ax = sns.boxplot(y="BPM", data=BPM_DF)
+
+
+# ----------------------------------
+
+# ## Implementación del Filtro
+
+# ### Para el Filtro de Topología Simple Model Avarage (SMA)
+
+# In[10]:
+
+
+BPM_DF['SMA_5'] = BPM_DF['BPM'].rolling(5, min_periods=1).mean()
+
+
+# In[11]:
+
+
+#BPM_DF['SMA_10'] = BPM_DF['BPM'].rolling(10, min_periods=1).mean()
+
+
+# In[12]:
+
+
+BPM_DF['SMA_20'] = BPM_DF['BPM'].rolling(20, min_periods=1).mean()
+
+
+# In[13]:
+
+
+BPM_Filter_SMA = BPM_DF.drop(columns=['Tiempo(s)'])
+
+
+# In[14]:
+
+
+BPM_Filter_SMA = BPM_Filter_SMA.rename(columns={"BPM": "Original"})
+
+
+# In[15]:
+
+
+plt.figure(figsize=[15,7])
+sns.lineplot(data = BPM_Filter_SMA, palette="tab10", linewidth=2.5)
+plt.ylabel("BPM")
+
+
+# ### Para el Filtro de Topología (CMA) Y (EMA)
+
+# In[16]:
+
+
+BPM_DF['CMA'] = BPM_DF['BPM'].expanding().mean()
+
+
+# In[17]:
+
+
+BPM_DF['EMA_0.2'] = BPM_DF['BPM'].ewm(alpha=0.2, adjust=False).mean()
+
+
+# In[18]:
+
+
+BPM_Filter_CMA = BPM_DF.drop(columns=['Tiempo(s)'])
+
+
+# In[19]:
+
+
+BPM_Filter_CMA = BPM_Filter_CMA.rename(columns={"BPM": "Original"})
+
+
+# In[20]:
+
+
+plt.figure(figsize=[15,7])
+sns.lineplot(data = BPM_Filter_CMA, palette="tab10", linewidth=2.5)
+plt.ylabel("BPM")
+
+
+# ## Discretizacion de la señal suavizada
+
+# In[21]:
+
+
+#Se crea una función para poder cuantizar la señal
+
+def cuantizador(x, cuant_mínimo=-1.0, cuant_maximo=1.0, nivel=5):
+
+    x_normalizado = (x-cuant_mínimo) * (nivel-1) / (cuant_maximo-cuant_mínimo) #Se toma el dato normalizado
+    x_normalizado[x_normalizado > nivel - 1] = nivel - 1
+    x_normalizado[x_normalizado < 0] = 0
+    x_cuant_norm = np.around(x_normalizado)
+    x_cuant = round((x_cuant_norm) * (cuant_maximo-cuant_mínimo) / (nivel-1) + cuant_mínimo).astype('int')
+    return x_cuant
+
+
+# In[22]:
+
+
+x=BPM_Filter_SMA['SMA_5']
+x
+
+
+# ### Grafica de la señal discretizada 
+
+# In[23]:
+
+
+#Se crea una función  para poder observar la señal discretizada 
+
+def grafica_discreta(x, t, x_cuant, xlim=None, ylim=None, title=''):
+    
+    plt.figure(figsize=[15,7]) #Se dimensiona el gráfico
+    
+    #Se colocan ciertos parámetros para el gráfico
+    plt.plot(t, x, color='maroon', linewidth=5.0, linestyle='-', label='Señal original filtrada (SMA_5)')
+    plt.plot(t, x_cuant, color='yellow', linewidth=2.0, linestyle='-', label='Señal Cuantificada')
+    
+    #Se definen limites del gráfico
+    if xlim is None:
+        plt.xlim([0, t[-1]])
+    else:
+        plt.xlim(xlim)
+    if ylim is not None:
+        plt.ylim(ylim)
+    
+    #Se colocan ciertos parámetros de leyendas y nombres a ejes
+    plt.xlabel('Tiempo (s)')
+    plt.ylabel('BPM')
+    plt.title(title)
+    plt.legend(loc='upper right', framealpha=1)
+    plt.tight_layout()
+    
+    #Se muestra el gráfico
+    plt.show()
+
+
+# In[24]:
+
+
+t=[]
+
+#Se Definen ciertos parámetros
+for i in range(0, 1270, 10):
+    t.append(i)
+    
+nivel = 100
+
+#Se grafica la señal cuantificada
+x_cuant = cuantizador(x, cuant_mínimo=80, cuant_maximo=170, nivel=nivel)
+grafica_discreta(x, t, x_cuant, xlim=[0, 1260], ylim=[80,170], 
+title=r'Nivel de cuantificacion $\lambda$=$%d$'%(nivel));
+
+
+# ## Convertir las muestras discretas y convertirlas a binario
+# 
+# En esta sección se estará creando una función para convertir número de decimal a binario
+
+# In[25]:
+
+
+max(x_cuant)
+
+
+# In[26]:
+
+
+#Se crea una función para convertir números de decimal a binario
+
+def dec_to_bin(x):
+    return int(bin(x)[2:])
+
+
+# In[27]:
+
+
+
+BPM_Discreta=[] # Se crea una lista vacía
+
+# Se añaden los valores cuantizados a la lista anterior
+for i in x_cuant:
+    BPM_Discreta.append(i-90)
+
+
+# In[28]:
+
+
+
+BPM_BIN=[] #Se crea una lista vacía
+
+# Se añaden los valores cuantizados a la lista anterior
+for i in BPM_Discreta:
+    BPM_BIN.append(dec_to_bin(i))
+
+
+# In[29]:
+
+
+
+BPM_BIN_7bits=[] #Se crea una lista vacía
+
+# Se añaden los valores cuantizados a la lista anterior
+for i in BPM_BIN:
+     BPM_BIN_7bits.append(str(i).rjust(11, '0'))
+
+
+# ## Codificacion Hamming
+# 
+# En esta sección se estará realizando una codificación de hamming con el objetivo de poder detectar y corregir errores, mediante una revision en los datos recibidos.
+
+# In[30]:
+
+
+#Se implementa un código en donde se aplica la codificacion hamming
+
+def calcRedundantBits(m):
+ 
+    # Se utiliza la fórmula 2 ^ r >= m + r + 1, para poder observar la redundancia de los da
+ 
+    for i in range(m):
+        if(2**i >= m + i + 1):
+            return i
+ 
+#Se crea una función para poder obtener las posiciones de los bits de redundancia 
+
+def posRedundantBits(data, r): 
+ 
+    # Los bits de redundancia se colocan en la posicion que les corresoponde a la potencia de 2
+    
+    j = 0
+    k = 1
+    m = len(data)
+    res = ''
+ 
+    for i in range(1, m + r+1): #Si la posicion es potencia de 2, se inserta un 0, sino se añade el dato
+        if(i == 2**j):
+            res = res + '0'
+            j += 1
+        else:
+            res = res + data[-1 * k]
+            k += 1
+            
+    return res[::-1]
+ 
+    
+#Se crea una función para los bits de paridad 
+
+def calcParidadtyBits(arreglo, r):
+    
+    n = len(arreglo)
+
+    for i in range(r):
+        val = 0
+        for j in range(1, n + 1):
+ 
+            if(j & (2**i) == (2**i)):
+                val = val ^ int(arreglo[-1 * j])
+            
+        arreglo = arreglo[:n-(2**i)] + str(val) + arreglo[n-(2**i)+1:] # Concatenación : (0 to n - 2^r) + bit de baridad + (n - 2^r + 1 to n)
+    
+    return arreglo #Se devuelve el arreglo
+ 
+#Se crea una función para la sección de la detección de errores
+
+def detectError(arreglo, nr):
+    n = len(arreglo)
+    res = 0
+ 
+    # Se calcula los bits de paridad 
+    
+    for i in range(nr):
+        val = 0
+        for j in range(1, n + 1):
+            if(j & (2**i) == (2**i)):
+                val = val ^ int(arreglo[-1 * j])
+ 
+        res = res + val*(10**i)
+ 
+    # Se hace la conversion de binario a decimal
+    
+    return int(str(res), 2)
+
+
+# In[31]:
+
+
+
+BPM_hamming=[] #Se crea una lista vacía para los valores de hamming
+
+for data  in BPM_BIN_7bits:  # Para añadir los bits transmitidos
+
+# Se calcula los requerimientos de los bits de redundancia
+    m = len(data)
+    r = calcRedundantBits(m)
+
+# Se determina la posicion de los bits de redundancia
+    arreglo = posRedundantBits(data, r)
+
+# Se determinan los bits de paridad
+    arreglo = calcParidadtyBits(arreglo, r)
+    
+    BPM_hamming.append(arreglo)
+
+#Se muestra al usuario los datos transferidos, así como el error de datos y la pos del error
+
+    print("El dato transferido es:" + arreglo) 
+    print("Los datos de error son: " + arreglo)
+    correction = detectError(arreglo, r)
+    print("La posisición del error es: " + str(correction))
+    print ('-------------------------------------')
+
+
+# ## Tabla Resumen
+# 
+# En esta sección se crea una matriz resumen, para poder observar las modificaciones realizadas a los datos a través del tiempo
+
+# In[32]:
+
+
+Comparacion_df = pd.DataFrame()
+Comparacion_df['Tiempo(s)']=t
+Comparacion_df['Señal Original']=BPM_DF['BPM']
+Comparacion_df['Datos filtrados (SMA_5)']=x
+Comparacion_df['Datos cuantificados']=x_cuant
+Comparacion_df['Datos codificados']=BPM_BIN_7bits
+Comparacion_df['Datos codificados por Hamming'] = BPM_hamming
+
+
+# In[33]:
+
+
+Comparacion_df
+
